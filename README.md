@@ -28,7 +28,7 @@ a computed lookup like `process.env[name]` is never replaced.
 
 | Variable | What it does |
 | --- | --- |
-| `EXPO_PUBLIC_API_URL` | Where the backend lives. A phone can't reach `localhost`, so on a dev machine this is its LAN address, e.g. `http://192.168.1.5:4000`. |
+| `EXPO_PUBLIC_API_URL` | Where the backend lives — the deployed HTTPS origin. Not a `.railway.internal` host: those resolve only between Railway services, never from a phone. Pointing it at a dev machine's LAN address works too, but only on that Wi-Fi. |
 | `EXPO_PUBLIC_API_KEY` | Must equal `APP_SECRET` in the backend's `.env`. Sent as the `x-api-key` header on every request. |
 
 `.env` is gitignored because it carries the key; `.env.example` is the template.
@@ -144,13 +144,14 @@ names that environment (`eas.json`), so the build picks the values up.
 
 Two things decide whether the APK is any use to whoever you send it to:
 
-- **`EXPO_PUBLIC_API_URL` is baked in at build time.** A LAN address only works
-  for phones on that Wi-Fi, while the laptop is running the server. Sharing it
-  further means hosting the backend somewhere public and rebuilding.
-- **Cleartext HTTP.** Android 9+ blocks plain `http://` in release builds, so
-  `expo-build-properties` sets `usesCleartextTraffic: true` in `app.json`. Drop
-  that once the API is on HTTPS — it lowers the bar for every request the app
-  makes, not just yours.
+- **`EXPO_PUBLIC_API_URL` is baked in at build time**, so the APK is tied to
+  whichever backend it was built against. It points at the deployed Railway
+  service, which works from any network.
+- **HTTPS.** Android 9+ blocks plain `http://` in release builds. The deployed
+  API is HTTPS so nothing special is needed; pointing a release build at a
+  `http://` LAN address would need `expo-build-properties` with
+  `usesCleartextTraffic: true`, which lowers the bar for every request the app
+  makes.
 
 ## Android-only
 
