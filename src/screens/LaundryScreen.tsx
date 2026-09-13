@@ -7,12 +7,13 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 
 import { laundryApi } from '../api';
 import { describeError } from '../api/client';
-import type { LaundryState } from '../api/types';
+import type { DryTimer, LaundryState } from '../api/types';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { ErrorBanner } from '../components/ErrorBanner';
 import {
@@ -21,6 +22,7 @@ import {
   describeRemaining,
   describeWash,
   isOverdue,
+  nagTimes,
 } from '../laundry/logic';
 import { loadScheduled, updateScheduled } from '../deviceNotifications';
 import { DESCALE_NAG_HOUR } from '../laundry/types';
@@ -44,6 +46,7 @@ export function LaundryScreen({ onBack }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [delayDays, setDelayDays] = useState<number | null>(null);
+  const [label, setLabel] = useState('');
   const [notificationsOn, setNotificationsOn] = useState(true);
   const [confirmDescale, setConfirmDescale] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -51,23 +54,29 @@ export function LaundryScreen({ onBack }: Props) {
   const permissionRef = useRef(false);
 
   /**
-   * Bring this phone's alarms in line with the server's state: the dry series
-   * from `reminderTimes` (past slots already dropped server-side), and the daily
-   * descale nag while the count is over the limit.
+   * Bring this phone's alarms in line with the server's state: the dry nags, and
+   * the daily descale nag while the count is over the limit.
    */
   const syncNotifications = useCallback(async (next: LaundryState) => {
     if (!permissionRef.current) return;
     const scheduled = await loadScheduled();
 
-    await cancelReminders(scheduled.dry);
-    const dry = next.dry
-      ? await scheduleSeries(
-          next.dry.reminderTimes.map((iso) => new Date(iso)),
-          DRY_TITLE,
-          (index) =>
-            index === 0 ? 'Time to bring them in.' : 'Still hanging out — bring them in.',
-        )
-      : [];
+    // One series per hanging load; anything brought in since last time is cancelled.
+    const dry: Record<string, string[]> = {};
+    for (const timer of next.dry) {
+      await cancelReminders(scheduled.dry[timer.id] ?? []);
+      dry[timer.id] = await scheduleSeries(
+        nagTimes(timer, next.settings.repeatHours, next.settings.repeatCount),
+        timer.label ? `${DRY_TITLE}: ${timer.label}` : DRY_TITLE,
+        (index) =>
+          index === 0 && !timer.overdue
+            ? 'Time to bring them in.'
+            : 'Still hanging out — bring them in.',
+      );
+    }
+    for (const [id, ids] of Object.entries(scheduled.dry)) {
+      if (!dry[id]) await cancelReminders(ids);
+    }
 
     let descale = scheduled.descale;
     if (next.descale.needed && descale.length === 0) {
@@ -177,7 +186,7 @@ export function LaundryScreen({ onBack }: Props) {
 
   const settings = state?.settings;
   const chosenDelay = delayDays ?? settings?.defaultDryDelay ?? 1.5;
-  const dryOverdue = state?.dry ? isOverdue(state.dry.dueAt, now) : false;
+  const drying = state?.dry ?? [];
   const washes = state?.washes.sinceDescale ?? 0;
   const limit = state?.descale.limit ?? 25;
   const descaleDue = state?.descale.needed ?? false;
@@ -224,70 +233,91 @@ export function LaundryScreen({ onBack }: Props) {
           </View>
         ) : null}
 
-        {/* Drying */}
+        {/* Drying — one card per hanging load, then the form to add another */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Clothes to dry</Text>
+          <Text style={styles.cardTitle}>
+            Clothes to dry{drying.length > 0 ? ` (${drying.length})` : ''}
+          </Text>
 
-          {state?.dry ? (
-            <>
-              <Text style={[styles.bigStatus, dryOverdue && styles.bigStatusDue]}>
-                {dryOverdue ? 'Bring them in' : describeRemaining(state.dry.dueAt, now)}
-              </Text>
-              <Text style={styles.meta}>
-                Hung out {describeRemaining(state.dry.startedAt, now)} · reminder{' '}
-                {describeDueAt(state.dry.dueAt)}
-              </Text>
-              {dryOverdue && settings ? (
-                <Text style={styles.nag}>
-                  Nagging every {settings.repeatHours}h until brought in
-                </Text>
-              ) : null}
+          {drying.map((timer) => {
+            const overdue = isOverdue(timer.dueAt, now);
+            return (
+              <View key={timer.id} style={[styles.dryRow, overdue && styles.dryRowOverdue]}>
+                <View style={styles.dryText}>
+                  {timer.label ? <Text style={styles.dryLabel}>{timer.label}</Text> : null}
+                  <Text style={[styles.bigStatus, overdue && styles.bigStatusDue]}>
+                    {overdue ? 'Bring them in' : describeRemaining(timer.dueAt, now)}
+                  </Text>
+                  <Text style={styles.meta}>
+                    Hung out {describeRemaining(timer.startedAt, now)} · reminder{' '}
+                    {describeDueAt(timer.dueAt)}
+                  </Text>
+                  {overdue && settings ? (
+                    <Text style={styles.nag}>
+                      Nagging every {settings.repeatHours}h until brought in
+                    </Text>
+                  ) : null}
+                </View>
 
-              <Pressable
-                style={({ pressed }) => [
-                  styles.primaryButton,
-                  dryOverdue && styles.primaryButtonDue,
-                  busy && styles.disabled,
-                  pressed && styles.pressed,
-                ]}
-                onPress={() => run(() => laundryApi.clearDry())}
-                disabled={busy}
-                android_ripple={{ color: '#FFFFFF33' }}>
-                <Text style={styles.primaryText}>Brought them in</Text>
-              </Pressable>
-            </>
-          ) : (
-            <>
-              <Text style={styles.label}>Remind me after</Text>
-              <View style={styles.chips}>
-                {(settings?.dryDelayPresets ?? [0.5, 1, 1.5, 2]).map((preset) => {
-                  const active = preset === chosenDelay;
-                  return (
-                    <Pressable
-                      key={preset}
-                      onPress={() => setDelayDays(preset)}
-                      style={[styles.chip, active && styles.chipActive]}>
-                      <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                        {describeDelay(preset)}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.broughtButton,
+                    overdue && styles.broughtButtonDue,
+                    busy && styles.disabled,
+                    pressed && styles.pressed,
+                  ]}
+                  onPress={() => run(() => laundryApi.clearDry(timer.id))}
+                  disabled={busy}
+                  android_ripple={{ color: '#FFFFFF33' }}>
+                  <Text style={styles.broughtText}>Brought in</Text>
+                </Pressable>
               </View>
+            );
+          })}
 
-              <Pressable
-                style={({ pressed }) => [
-                  styles.primaryButton,
-                  busy && styles.disabled,
-                  pressed && styles.pressed,
-                ]}
-                onPress={() => run(() => laundryApi.startDry(chosenDelay))}
-                disabled={busy}
-                android_ripple={{ color: '#FFFFFF33' }}>
-                <Text style={styles.primaryText}>Clothes put to dry</Text>
-              </Pressable>
-            </>
-          )}
+          <Text style={styles.label}>
+            {drying.length > 0 ? 'Put another load out' : 'Remind me after'}
+          </Text>
+          <View style={styles.chips}>
+            {(settings?.dryDelayPresets ?? [0.5, 1, 1.5, 2]).map((preset) => {
+              const active = preset === chosenDelay;
+              return (
+                <Pressable
+                  key={preset}
+                  onPress={() => setDelayDays(preset)}
+                  style={[styles.chip, active && styles.chipActive]}>
+                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                    {describeDelay(preset)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <TextInput
+            style={styles.input}
+            value={label}
+            onChangeText={setLabel}
+            placeholder="Name it (optional) — whites, towels…"
+            placeholderTextColor={colors.muted}
+            returnKeyType="done"
+          />
+
+          <Pressable
+            style={({ pressed }) => [
+              styles.primaryButton,
+              busy && styles.disabled,
+              pressed && styles.pressed,
+            ]}
+            onPress={async () => {
+              const name = label.trim();
+              setLabel('');
+              await run(() => laundryApi.startDry(chosenDelay, name || undefined));
+            }}
+            disabled={busy}
+            android_ripple={{ color: '#FFFFFF33' }}>
+            <Text style={styles.primaryText}>Clothes put to dry</Text>
+          </Pressable>
         </View>
 
         {/* Machine washes */}
@@ -423,7 +453,43 @@ const styles = StyleSheet.create({
   metaCentered: { marginTop: 6, fontSize: 12, color: colors.muted, textAlign: 'center' },
   nag: { marginTop: 6, fontSize: 12, color: colors.overdue, fontWeight: '600' },
 
-  bigStatus: { fontSize: 26, fontWeight: '700', color: colors.accent },
+  dryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  dryRowOverdue: {
+    backgroundColor: '#FDECEC',
+    borderTopColor: '#F5C6C6',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    marginTop: 6,
+  },
+  dryText: { flex: 1 },
+  dryLabel: { fontSize: 13, fontWeight: '700', color: colors.muted, marginBottom: 2 },
+  broughtButton: {
+    backgroundColor: colors.accent,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  broughtButtonDue: { backgroundColor: colors.overdue },
+  broughtText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+  input: {
+    marginTop: 12,
+    backgroundColor: colors.bg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: colors.text,
+  },
+  bigStatus: { fontSize: 22, fontWeight: '700', color: colors.accent },
   bigStatusDue: { color: colors.overdue },
 
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

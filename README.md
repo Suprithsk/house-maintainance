@@ -116,9 +116,10 @@ One screen for the whole washing routine, because the parts feed each other.
 `GET /api/laundry` returns the whole screen: the dry timer, the wash counters, the descale
 status, and the limits themselves — so the app never hard-codes 25 or the delay presets.
 
-**Drying** — one timer at a time; it's a place, not a list. The server computes `dueAt` and the
-`reminderTimes` the phone should schedule (the due alert plus a nag every 6 hours, with slots
-already past dropped), so a phone reopening after a gap arms only what's still ahead.
+**Drying** — several loads can hang out at once, each with its own countdown, optional label and
+"Brought in" button. The server computes each `dueAt` and the `reminderTimes` the phone should
+schedule; the app extends that tail so a load ignored for two days keeps being chased rather
+than going quiet once the server's eight slots have passed.
 
 **Washes and descaling** — "Log a wash" appends to a log that is never decremented; the count is
 *derived* from rows newer than `lastDescaleAt`. It keeps climbing past 25. "Descaling completed"

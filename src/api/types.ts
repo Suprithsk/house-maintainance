@@ -36,16 +36,21 @@ export type ShoppingItem = {
 
 export type ShoppingList = { pending: ShoppingItem[]; bought: ShoppingItem[] };
 
+/** One load hanging out. Several can run at once, soonest due first. */
+export type DryTimer = {
+  id: string;
+  label: string | null;
+  startedAt: string;
+  dueAt: string;
+  delayDays: number;
+  overdue: boolean;
+  /** Due alert plus the nags still ahead — the device schedules these itself. */
+  reminderTimes: string[];
+  nextReminderAt: string;
+};
+
 export type LaundryState = {
-  dry: {
-    startedAt: string;
-    dueAt: string;
-    delayDays: number;
-    overdue: boolean;
-    /** Due alert plus the nags still ahead — the device schedules these itself. */
-    reminderTimes: string[];
-    nextReminderAt: string;
-  } | null;
+  dry: DryTimer[];
   washes: {
     sinceDescale: number;
     thisMonth: number;

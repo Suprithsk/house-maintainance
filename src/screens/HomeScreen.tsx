@@ -44,7 +44,8 @@ export function HomeScreen({ onNavigate }: Props) {
         ),
         laundryApi.get().then((state) => {
           const parts = [`${state.washes.sinceDescale} washes`];
-          if (state.dry) parts.unshift('Clothes drying');
+          if (state.dry.length === 1) parts.unshift('1 load drying');
+          else if (state.dry.length > 1) parts.unshift(`${state.dry.length} loads drying`);
           if (state.descale.needed) parts.push('descale due');
           return parts.join(' · ');
         }),

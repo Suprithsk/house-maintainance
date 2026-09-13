@@ -8,14 +8,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const KEY = 'sks-home/notification-ids/v1';
 
 export type ScheduledIds = {
-  dry: string[];
+  /** Keyed by dry timer id — several loads can hang out at once. */
+  dry: Record<string, string[]>;
   descale: string[];
   milk: string[];
   /** What the milk alarms were built from; unchanged means no need to rebuild. */
   milkKey: string;
 };
 
-const EMPTY: ScheduledIds = { dry: [], descale: [], milk: [], milkKey: '' };
+const EMPTY: ScheduledIds = { dry: {}, descale: [], milk: [], milkKey: '' };
 
 export async function loadScheduled(): Promise<ScheduledIds> {
   try {
@@ -23,7 +24,11 @@ export async function loadScheduled(): Promise<ScheduledIds> {
     if (!raw) return EMPTY;
     const parsed = JSON.parse(raw);
     return {
-      dry: Array.isArray(parsed?.dry) ? parsed.dry : [],
+      // An older build stored a flat array for the single timer it allowed.
+      dry:
+        parsed?.dry && !Array.isArray(parsed.dry) && typeof parsed.dry === 'object'
+          ? parsed.dry
+          : {},
       descale: Array.isArray(parsed?.descale) ? parsed.descale : [],
       milk: Array.isArray(parsed?.milk) ? parsed.milk : [],
       milkKey: typeof parsed?.milkKey === 'string' ? parsed.milkKey : '',

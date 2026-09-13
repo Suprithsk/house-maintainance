@@ -27,9 +27,15 @@ export const shoppingApi = {
 /** Every laundry write answers with the whole new state, so nothing needs a refetch. */
 export const laundryApi = {
   get: () => request<LaundryState>('/api/laundry'),
-  startDry: (delayDays: number) =>
-    request<LaundryState>('/api/laundry/dry', { method: 'POST', body: { delayDays } }),
-  clearDry: () => request<LaundryState>('/api/laundry/dry', { method: 'DELETE' }),
+  startDry: (delayDays: number, label?: string) =>
+    request<LaundryState>('/api/laundry/dry', {
+      method: 'POST',
+      body: label ? { delayDays, label } : { delayDays },
+    }),
+  /** Brought one load in. */
+  clearDry: (id: string) =>
+    request<LaundryState>(`/api/laundry/dry/${id}`, { method: 'DELETE' }),
+  clearAllDry: () => request<LaundryState>('/api/laundry/dry', { method: 'DELETE' }),
   logWash: () => request<LaundryState>('/api/laundry/washes', { method: 'POST', body: {} }),
   descaled: () => request<LaundryState>('/api/laundry/descale', { method: 'POST', body: {} }),
 };
