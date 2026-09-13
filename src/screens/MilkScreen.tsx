@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 
 import { milkApi } from '../api';
-import { describeError } from '../api/client';
+import { describeError, describeTarget } from '../api/client';
 import type { MilkSummary, PricedEntry, Rates } from '../api/types';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { loadScheduled, updateScheduled } from '../deviceNotifications';
@@ -117,15 +117,16 @@ export function MilkScreen({ onBack }: Props) {
   );
 
   useEffect(() => {
-    let cancelled = false;
     (async () => {
       setLoading(true);
-      await load(month);
-      if (!cancelled) setLoading(false);
+      try {
+        await load(month);
+      } finally {
+        // Unconditional. Guarding this on a "still current" flag means a superseded
+        // run leaves the screen spinning forever with nothing rendered to say why.
+        setLoading(false);
+      }
     })();
-    return () => {
-      cancelled = true;
-    };
   }, [month, load]);
 
   // Fill the form from whatever the server already holds for the chosen date.
@@ -218,6 +219,8 @@ export function MilkScreen({ onBack }: Props) {
     return (
       <View style={[styles.screen, styles.center]}>
         <ActivityIndicator size="large" color={colors.accent} />
+        <Text style={styles.loadingNote}>Loading from {describeTarget()}</Text>
+        {error ? <ErrorBanner message={error} onRetry={() => void load(month)} /> : null}
       </View>
     );
   }
@@ -424,6 +427,13 @@ function QuantityPicker({ value, onChange }: { value: string; onChange: (next: s
 }
 
 const styles = StyleSheet.create({
+  loadingNote: {
+    marginTop: 16,
+    marginHorizontal: 24,
+    color: colors.muted,
+    fontSize: 12,
+    textAlign: 'center',
+  },
   screen: { flex: 1, backgroundColor: colors.bg, paddingTop: 44 },
   center: { alignItems: 'center', justifyContent: 'center' },
   header: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 },
