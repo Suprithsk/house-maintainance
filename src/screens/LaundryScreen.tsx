@@ -22,17 +22,7 @@ import {
   describeRemaining,
   describeWash,
   isOverdue,
-  nagTimes,
 } from '../laundry/logic';
-import { loadScheduled, updateScheduled } from '../deviceNotifications';
-import { DESCALE_NAG_HOUR } from '../laundry/types';
-import {
-  cancelReminders,
-  remindersSupported,
-  scheduleDaily,
-  scheduleSeries,
-  setupNotifications,
-} from '../notifications';
 import { colors } from '../theme';
 
 type Props = { onBack: () => void };
@@ -47,86 +37,20 @@ export function LaundryScreen({ onBack }: Props) {
   const [busy, setBusy] = useState(false);
   const [delayDays, setDelayDays] = useState<number | null>(null);
   const [label, setLabel] = useState('');
-  const [notificationsOn, setNotificationsOn] = useState(true);
   const [confirmDescale, setConfirmDescale] = useState(false);
   const [now, setNow] = useState(Date.now());
-
-  const permissionRef = useRef(false);
-
-  /**
-   * Bring this phone's alarms in line with the server's state: the dry nags, and
-   * the daily descale nag while the count is over the limit.
-   */
-  const syncNotifications = useCallback(async (next: LaundryState) => {
-    if (!permissionRef.current) return;
-    const scheduled = await loadScheduled();
-
-    // One series per hanging load; anything brought in since last time is cancelled.
-    const dry: Record<string, string[]> = {};
-    for (const timer of next.dry) {
-      await cancelReminders(scheduled.dry[timer.id] ?? []);
-      dry[timer.id] = await scheduleSeries(
-        nagTimes(timer, next.settings.repeatHours, next.settings.repeatCount),
-        timer.label ? `${DRY_TITLE}: ${timer.label}` : DRY_TITLE,
-        (index) =>
-          index === 0 && !timer.overdue
-            ? 'Time to bring them in.'
-            : 'Still hanging out — bring them in.',
-      );
-    }
-    for (const [id, ids] of Object.entries(scheduled.dry)) {
-      if (!dry[id]) await cancelReminders(ids);
-    }
-
-    let descale = scheduled.descale;
-    if (next.descale.needed && descale.length === 0) {
-      const body = `${next.washes.sinceDescale} washes done — run a descaling powder cycle.`;
-      const immediate = await scheduleSeries(
-        [new Date(Date.now() + 60_000)],
-        'Descaling wash due',
-        () => body,
-      );
-      const daily = await scheduleDaily(DESCALE_NAG_HOUR, 0, 'Descaling wash due', body);
-      descale = daily ? [...immediate, daily] : immediate;
-    } else if (!next.descale.needed && descale.length > 0) {
-      await cancelReminders(descale);
-      descale = [];
-    }
-
-    await updateScheduled({ dry, descale });
-  }, []);
-
-  /**
-   * Resolve permission, then bring the alarms in line. Kept off the render path:
-   * the prompt waits on a human, and nothing on this screen needs an answer to
-   * draw the timer or the wash count.
-   */
-  const ensureReminders = useCallback(
-    async (next: LaundryState) => {
-      if (!permissionRef.current) {
-        permissionRef.current = await setupNotifications();
-        setNotificationsOn(permissionRef.current);
-      }
-      if (!permissionRef.current) return;
-      await syncNotifications(next);
-    },
-    [syncNotifications],
-  );
 
   const load = useCallback(async () => {
     try {
       setError(null);
       const next = await laundryApi.get();
       setState(next);
-      void ensureReminders(next).catch((reminderError) =>
-        console.warn('Could not sync laundry reminders', reminderError),
-      );
       return next;
     } catch (err) {
       setError(describeError(err));
       return null;
     }
-  }, [ensureReminders]);
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -151,18 +75,14 @@ export function LaundryScreen({ onBack }: Props) {
       setBusy(true);
       try {
         setError(null);
-        const next = await action();
-        setState(next);
-        // Via ensureReminders, so a tap before the prompt is answered still arms
-        // the alarms once permission lands rather than silently skipping them.
-        await ensureReminders(next);
+        setState(await action());
       } catch (err) {
         setError(describeError(err));
       } finally {
         setBusy(false);
       }
     },
-    [ensureReminders],
+    [],
   );
 
   const refresh = useCallback(async () => {
@@ -202,13 +122,7 @@ export function LaundryScreen({ onBack }: Props) {
           <Text style={styles.back}>‹  Home</Text>
         </Pressable>
         <Text style={styles.title}>Laundry</Text>
-        {!notificationsOn ? (
-          <Text style={styles.warning}>
-            {remindersSupported()
-              ? 'Notifications are off, so nothing will alert you. Enable them in Android settings.'
-              : 'Running in Expo Go — alerts need a dev build. Timers still count down here.'}
-          </Text>
-        ) : null}
+
       </View>
 
       <ScrollView

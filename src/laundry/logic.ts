@@ -5,31 +5,6 @@
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/**
- * When to nag about clothes still hanging out.
- *
- * The server's `reminderTimes` are anchored to the due time — due + 6h, +12h, and
- * so on, eight deep — so once two days have passed they are all in the past and
- * the list comes back empty. Left at that, a timer ignored for two days would go
- * quiet exactly when it most needs chasing. So the tail is extended from the last
- * known slot (or `nextReminderAt`, for a timer that came due while the app was
- * closed) until there is a full set ahead again, topped up on every visit.
- */
-export function nagTimes(
-  dry: { reminderTimes: string[]; nextReminderAt: string },
-  repeatHours: number,
-  repeatCount: number,
-): Date[] {
-  const step = repeatHours * 60 * 60 * 1000;
-  const times = dry.reminderTimes.map((iso) => new Date(iso));
-  if (times.length === 0) times.push(new Date(dry.nextReminderAt));
-
-  while (times.length <= repeatCount) {
-    times.push(new Date(times[times.length - 1].getTime() + step));
-  }
-  return times;
-}
-
 export function isOverdue(dueAt: string, now: number = Date.now()): boolean {
   return new Date(dueAt).getTime() <= now;
 }

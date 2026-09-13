@@ -1,4 +1,6 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isRunningInExpoGo } from 'expo';
+import Constants from 'expo-constants';
 
 export const ANDROID_CHANNEL_ID = 'reminders';
 
@@ -39,6 +41,51 @@ function loadNotifications(): Promise<NotificationsModule | null> {
 
 export function remindersSupported(): boolean {
   return !isRunningInExpoGo();
+}
+
+/**
+ * This phone's Expo push token, for the server to send to.
+ * projectId is required — without it Expo cannot tell which project the token
+ * belongs to, and issuing silently fails.
+ */
+export async function getPushToken(): Promise<string | null> {
+  const Notifications = await loadNotifications();
+  if (!Notifications) return null;
+
+  const projectId =
+    Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+  if (!projectId) {
+    console.warn('No EAS projectId in app config; cannot get a push token.');
+    return null;
+  }
+
+  try {
+    const { data } = await Notifications.getExpoPushTokenAsync({ projectId });
+    return data;
+  } catch (error) {
+    console.warn('Could not get a push token', error);
+    return null;
+  }
+}
+
+const LEGACY_CLEARED_KEY = 'sks-home/legacy-local-schedule-cleared/v1';
+
+/**
+ * Earlier builds scheduled every reminder locally — roughly 119 milk alarms plus
+ * the drying nags. Those are still sitting in Android's scheduler after an
+ * upgrade, and would fire alongside the server's push. Clear them once.
+ */
+export async function clearLegacyLocalSchedule(): Promise<void> {
+  try {
+    if (await AsyncStorage.getItem(LEGACY_CLEARED_KEY)) return;
+    const Notifications = await loadNotifications();
+    if (!Notifications) return;
+    await Notifications.cancelAllScheduledNotificationsAsync();
+    await AsyncStorage.setItem(LEGACY_CLEARED_KEY, new Date().toISOString());
+    console.log('Cleared locally scheduled reminders; the server sends them now.');
+  } catch (error) {
+    console.warn('Could not clear old local reminders', error);
+  }
 }
 
 /** Creates the Android channel and asks for POST_NOTIFICATIONS (Android 13+). */

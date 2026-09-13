@@ -50,6 +50,23 @@ nothing fires. For working alerts, build a dev client:
 npx eas-cli build --platform android --profile development
 ```
 
+## Notifications
+
+Reminders are **pushed by the server**, not scheduled on the phone. On launch the app registers
+its Expo push token with `POST /api/devices`; the backend ticks every 15 minutes and sends what
+is due to every registered phone.
+
+The app used to schedule its own alarms, which meant every phone fired but only the phone that
+acted stopped. Logging the milk here left another handset still holding its 8:30 alarm, and it
+pinged anyway — a phone cannot know what someone else has already done. Only the server can
+decide *not* to send.
+
+The consequence worth knowing: if the backend is down, no reminders arrive at all. Local alarms
+would still have fired. That is the price of them being correct.
+
+An upgrade from an older build cancels the alarms that build left in Android's scheduler
+(`clearLegacyLocalSchedule`), once — otherwise both would fire.
+
 ## Talking to the backend
 
 `src/api/client.ts` is the only place that knows about HTTP: it attaches the
@@ -117,9 +134,8 @@ One screen for the whole washing routine, because the parts feed each other.
 status, and the limits themselves — so the app never hard-codes 25 or the delay presets.
 
 **Drying** — several loads can hang out at once, each with its own countdown, optional label and
-"Brought in" button. The server computes each `dueAt` and the `reminderTimes` the phone should
-schedule; the app extends that tail so a load ignored for two days keeps being chased rather
-than going quiet once the server's eight slots have passed.
+"Brought in" button. The server owns the reminders: one at the due time, then every 6 hours
+until that load is brought in.
 
 **Washes and descaling** — "Log a wash" appends to a log that is never decremented; the count is
 *derived* from rows newer than `lastDescaleAt`. It keeps climbing past 25. "Descaling completed"

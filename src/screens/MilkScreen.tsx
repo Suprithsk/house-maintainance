@@ -13,8 +13,8 @@ import {
 import { milkApi } from '../api';
 import { describeError, describeTarget } from '../api/client';
 import type { MilkSummary, PricedEntry, Rates } from '../api/types';
+import { deviceApi } from '../api';
 import { ConfirmModal } from '../components/ConfirmModal';
-import { loadScheduled, updateScheduled } from '../deviceNotifications';
 import { DateField } from '../components/DateField';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { RatesModal } from '../components/RatesModal';
@@ -28,14 +28,8 @@ import {
   shiftMonth,
   shortDate,
 } from '../milk/calc';
-import { describeSlots, reminderSlots, slotsSignature } from '../milk/reminders';
+import { describeSlots } from '../milk/reminders';
 import { DEFAULT_QUANTITY, PACKET_SIZE, QUANTITY_PRESETS } from '../milk/types';
-import {
-  cancelReminders,
-  scheduleSeries,
-  scheduledCount,
-  setupNotifications,
-} from '../notifications';
 import { colors } from '../theme';
 
 type Props = { onBack: () => void };
@@ -49,8 +43,6 @@ export function MilkScreen({ onBack }: Props) {
   const [month, setMonth] = useState(currentMonth());
   const [ratesOpen, setRatesOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<PricedEntry | null>(null);
-  const [remindersOn, setRemindersOn] = useState(false);
-  const [scheduled, setScheduled] = useState(0);
   const [testNote, setTestNote] = useState<string | null>(null);
 
   // Form state — one entry per date, so picking an existing date edits that day.
@@ -58,63 +50,16 @@ export function MilkScreen({ onBack }: Props) {
   const [milk, setMilk] = useState(String(DEFAULT_QUANTITY));
   const [curd, setCurd] = useState(String(DEFAULT_QUANTITY));
 
-  const permissionRef = useRef(false);
-
-  /**
-   * Rebuild the nudges from what the server says is recorded — but only when that
-   * has actually changed. Otherwise every visit would re-issue hundreds of native
-   * calls to arrive at the same alarms.
-   *
-   * Permission is resolved here rather than in a parallel effect: the prompt waits
-   * on a human, the data load does not, so anything racing the two skips scheduling
-   * entirely on the launch that matters.
-   */
-  const syncReminders = useCallback(async (recorded: Set<string>) => {
-    if (!permissionRef.current) {
-      permissionRef.current = await setupNotifications();
-      setRemindersOn(permissionRef.current);
-    }
-    if (!permissionRef.current) return;
-
-    const stored = await loadScheduled();
-    const key = slotsSignature(recorded);
-    if (stored.milkKey === key && stored.milk.length > 0) {
-      setScheduled(await scheduledCount());
-      return;
-    }
-
-    await cancelReminders(stored.milk);
-    const milk = await scheduleSeries(
-      reminderSlots(recorded),
-      "Log today's milk",
-      () => 'Tap to record the milk and curd taken today.',
-    );
-    await updateScheduled({ milk, milkKey: key });
-    setScheduled(await scheduledCount());
-  }, []);
-
   const load = useCallback(
     async (key: string) => {
       try {
         setError(null);
-        const next = await milkApi.summary(key);
-        setSummary(next);
-        // Only the current month can say anything about today onwards.
-        //
-        // Deliberately not awaited. syncReminders waits on the permission prompt —
-        // a human — and then issues one native call per alarm, up to 120 of them.
-        // The milk table needs none of that to render, and gating the spinner on it
-        // leaves the screen loading indefinitely while a dialog sits unanswered.
-        if (next.month === currentMonth()) {
-          void syncReminders(new Set(next.entries.map((entry) => entry.date))).catch(
-            (reminderError) => console.warn('Could not sync milk reminders', reminderError),
-          );
-        }
+        setSummary(await milkApi.summary(key));
       } catch (err) {
         setError(describeError(err));
       }
     },
-    [syncReminders],
+    [],
   );
 
   useEffect(() => {
@@ -211,35 +156,21 @@ export function MilkScreen({ onBack }: Props) {
   );
 
   /**
-   * Proves the whole chain end to end — permission, channel, scheduling, delivery —
-   * without waiting for a real slot. A minute's delay is long enough to background
-   * the app, which is where a reminder actually has to work.
+   * Asks the server to push right now — the same path a real reminder takes, so
+   * it proves the token registered and Android accepts the delivery.
    */
   const sendTestReminder = useCallback(async () => {
-    if (!permissionRef.current) {
-      permissionRef.current = await setupNotifications();
-      setRemindersOn(permissionRef.current);
+    setTestNote('Sending…');
+    try {
+      const { sent } = await deviceApi.sendTest();
+      setTestNote(
+        sent > 0
+          ? `Sent to ${sent} phone${sent === 1 ? '' : 's'}.`
+          : 'No phones registered yet — reopen the app to register this one.',
+      );
+    } catch (err) {
+      setTestNote(describeError(err));
     }
-    if (!permissionRef.current) {
-      setTestNote('Notifications are off — enable them in Android settings.');
-      return;
-    }
-
-    const at = new Date(Date.now() + 60_000);
-    const ids = await scheduleSeries(
-      [at],
-      'Test reminder',
-      () => 'If you can see this, reminders work.',
-    );
-    setTestNote(
-      ids.length > 0
-        ? `Test scheduled for ${at.toLocaleTimeString(undefined, {
-            hour: 'numeric',
-            minute: '2-digit',
-          })} — close the app and wait.`
-        : "Couldn't schedule the test.",
-    );
-    setScheduled(await scheduledCount());
   }, []);
 
   const refresh = useCallback(async () => {
@@ -347,14 +278,12 @@ export function MilkScreen({ onBack }: Props) {
           <QuantityPicker value={curd} onChange={setCurd} />
 
           <Text style={styles.reminderNote}>
-            {remindersOn
-              ? `Reminders at ${describeSlots()}, and they stop for a day once it's recorded.` +
-                (scheduled > 0 ? ` ${scheduled} scheduled.` : '')
-              : `Reminders at ${describeSlots()} need notification permission.`}
+            Every phone is reminded at {describeSlots()}, sent from the server and
+            skipped once the day is recorded.
           </Text>
 
           <Pressable onPress={sendTestReminder} style={styles.testButton} hitSlop={8}>
-            <Text style={styles.testText}>Send a test reminder (1 min)</Text>
+            <Text style={styles.testText}>Send a test notification</Text>
           </Pressable>
           {testNote ? <Text style={styles.testNote}>{testNote}</Text> : null}
 

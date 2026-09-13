@@ -24,6 +24,16 @@ export const shoppingApi = {
   remove: (id: string) => request(`/api/shopping/items/${id}`, { method: 'DELETE' }),
 };
 
+export const deviceApi = {
+  /** Called on launch; the token is the identity, so the server upserts. */
+  register: (token: string, label?: string) =>
+    request<{ id: string }>('/api/devices', {
+      method: 'POST',
+      body: label ? { token, platform: 'android', label } : { token, platform: 'android' },
+    }),
+  sendTest: () => request<{ sent: number; dropped: number }>('/api/devices/test', { method: 'POST' }),
+};
+
 /** Every laundry write answers with the whole new state, so nothing needs a refetch. */
 export const laundryApi = {
   get: () => request<LaundryState>('/api/laundry'),

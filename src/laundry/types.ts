@@ -1,7 +1,6 @@
 /**
- * Device-side constants. The wash limit, dry-delay presets and nag interval all
- * come from the server's `settings` block, so both ends can't disagree.
+ * Nothing device-side left to configure: the wash limit, dry-delay presets and
+ * nag interval all come from the server's `settings` block, and the reminder
+ * times live in the backend's reminder logic.
  */
-
-/** Hour of day the descale nag repeats at, while the count is over the limit. */
-export const DESCALE_NAG_HOUR = 9;
+export {};
