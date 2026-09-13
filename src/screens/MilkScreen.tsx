@@ -30,7 +30,12 @@ import {
 } from '../milk/calc';
 import { describeSlots, reminderSlots, slotsSignature } from '../milk/reminders';
 import { DEFAULT_QUANTITY, PACKET_SIZE, QUANTITY_PRESETS } from '../milk/types';
-import { cancelReminders, scheduleSeries, setupNotifications } from '../notifications';
+import {
+  cancelReminders,
+  scheduleSeries,
+  scheduledCount,
+  setupNotifications,
+} from '../notifications';
 import { colors } from '../theme';
 
 type Props = { onBack: () => void };
@@ -45,6 +50,7 @@ export function MilkScreen({ onBack }: Props) {
   const [ratesOpen, setRatesOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<PricedEntry | null>(null);
   const [remindersOn, setRemindersOn] = useState(false);
+  const [scheduled, setScheduled] = useState(0);
 
   // Form state — one entry per date, so picking an existing date edits that day.
   const [date, setDate] = useState(today());
@@ -55,22 +61,35 @@ export function MilkScreen({ onBack }: Props) {
 
   /**
    * Rebuild the nudges from what the server says is recorded — but only when that
-   * has actually changed. Otherwise every visit would re-issue ~360 native calls
-   * to arrive at the same 180 alarms.
+   * has actually changed. Otherwise every visit would re-issue hundreds of native
+   * calls to arrive at the same alarms.
+   *
+   * Permission is resolved here rather than in a parallel effect: the prompt waits
+   * on a human, the data load does not, so anything racing the two skips scheduling
+   * entirely on the launch that matters.
    */
   const syncReminders = useCallback(async (recorded: Set<string>) => {
+    if (!permissionRef.current) {
+      permissionRef.current = await setupNotifications();
+      setRemindersOn(permissionRef.current);
+    }
     if (!permissionRef.current) return;
-    const scheduled = await loadScheduled();
-    const key = slotsSignature(recorded);
-    if (scheduled.milkKey === key && scheduled.milk.length > 0) return;
 
-    await cancelReminders(scheduled.milk);
+    const stored = await loadScheduled();
+    const key = slotsSignature(recorded);
+    if (stored.milkKey === key && stored.milk.length > 0) {
+      setScheduled(await scheduledCount());
+      return;
+    }
+
+    await cancelReminders(stored.milk);
     const milk = await scheduleSeries(
       reminderSlots(recorded),
       "Log today's milk",
       () => 'Tap to record the milk and curd taken today.',
     );
     await updateScheduled({ milk, milkKey: key });
+    setScheduled(await scheduledCount());
   }, []);
 
   const load = useCallback(
@@ -89,13 +108,6 @@ export function MilkScreen({ onBack }: Props) {
     },
     [syncReminders],
   );
-
-  useEffect(() => {
-    (async () => {
-      permissionRef.current = await setupNotifications();
-      setRemindersOn(permissionRef.current);
-    })();
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -293,7 +305,8 @@ export function MilkScreen({ onBack }: Props) {
 
           <Text style={styles.reminderNote}>
             {remindersOn
-              ? `Reminders at ${describeSlots()}, and they stop for a day once it's recorded.`
+              ? `Reminders at ${describeSlots()}, and they stop for a day once it's recorded.` +
+                (scheduled > 0 ? ` ${scheduled} scheduled.` : '')
               : `Reminders at ${describeSlots()} need notification permission.`}
           </Text>
 

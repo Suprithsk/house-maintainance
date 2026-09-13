@@ -63,6 +63,18 @@ export async function setupNotifications(): Promise<boolean> {
   }
 }
 
+/** What the OS actually holds — the honest answer to "is anything scheduled?". */
+export async function scheduledCount(): Promise<number> {
+  const Notifications = await loadNotifications();
+  if (!Notifications) return 0;
+  try {
+    return (await Notifications.getAllScheduledNotificationsAsync()).length;
+  } catch (error) {
+    console.warn('Could not read scheduled notifications', error);
+    return 0;
+  }
+}
+
 export async function cancelReminders(notificationIds: string[]): Promise<void> {
   if (notificationIds.length === 0) return;
   const Notifications = await loadNotifications();

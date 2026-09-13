@@ -31,6 +31,12 @@
           "defaultChannel": "reminders"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "0ddcbeb0-6486-4174-8e4c-3ef58f287ccb"
+      }
+    },
+    "owner": "suprith_sk"
   }
 }
