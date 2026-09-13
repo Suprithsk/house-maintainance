@@ -99,8 +99,15 @@ export function MilkScreen({ onBack }: Props) {
         const next = await milkApi.summary(key);
         setSummary(next);
         // Only the current month can say anything about today onwards.
+        //
+        // Deliberately not awaited. syncReminders waits on the permission prompt —
+        // a human — and then issues one native call per alarm, up to 120 of them.
+        // The milk table needs none of that to render, and gating the spinner on it
+        // leaves the screen loading indefinitely while a dialog sits unanswered.
         if (next.month === currentMonth()) {
-          await syncReminders(new Set(next.entries.map((entry) => entry.date)));
+          void syncReminders(new Set(next.entries.map((entry) => entry.date))).catch(
+            (reminderError) => console.warn('Could not sync milk reminders', reminderError),
+          );
         }
       } catch (err) {
         setError(describeError(err));

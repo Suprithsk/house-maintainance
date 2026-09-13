@@ -87,23 +87,40 @@ export function LaundryScreen({ onBack }: Props) {
     await updateScheduled({ dry, descale });
   }, []);
 
+  /**
+   * Resolve permission, then bring the alarms in line. Kept off the render path:
+   * the prompt waits on a human, and nothing on this screen needs an answer to
+   * draw the timer or the wash count.
+   */
+  const ensureReminders = useCallback(
+    async (next: LaundryState) => {
+      if (!permissionRef.current) {
+        permissionRef.current = await setupNotifications();
+        setNotificationsOn(permissionRef.current);
+      }
+      if (!permissionRef.current) return;
+      await syncNotifications(next);
+    },
+    [syncNotifications],
+  );
+
   const load = useCallback(async () => {
     try {
       setError(null);
       const next = await laundryApi.get();
       setState(next);
-      await syncNotifications(next);
+      void ensureReminders(next).catch((reminderError) =>
+        console.warn('Could not sync laundry reminders', reminderError),
+      );
       return next;
     } catch (err) {
       setError(describeError(err));
       return null;
     }
-  }, [syncNotifications]);
+  }, [ensureReminders]);
 
   useEffect(() => {
     (async () => {
-      permissionRef.current = await setupNotifications();
-      setNotificationsOn(permissionRef.current);
       await load();
       setLoading(false);
     })();
@@ -127,14 +144,16 @@ export function LaundryScreen({ onBack }: Props) {
         setError(null);
         const next = await action();
         setState(next);
-        await syncNotifications(next);
+        // Via ensureReminders, so a tap before the prompt is answered still arms
+        // the alarms once permission lands rather than silently skipping them.
+        await ensureReminders(next);
       } catch (err) {
         setError(describeError(err));
       } finally {
         setBusy(false);
       }
     },
-    [syncNotifications],
+    [ensureReminders],
   );
 
   const refresh = useCallback(async () => {
