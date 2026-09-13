@@ -51,6 +51,7 @@ export function MilkScreen({ onBack }: Props) {
   const [pendingDelete, setPendingDelete] = useState<PricedEntry | null>(null);
   const [remindersOn, setRemindersOn] = useState(false);
   const [scheduled, setScheduled] = useState(0);
+  const [testNote, setTestNote] = useState<string | null>(null);
 
   // Form state — one entry per date, so picking an existing date edits that day.
   const [date, setDate] = useState(today());
@@ -209,6 +210,38 @@ export function MilkScreen({ onBack }: Props) {
     [month, load],
   );
 
+  /**
+   * Proves the whole chain end to end — permission, channel, scheduling, delivery —
+   * without waiting for a real slot. A minute's delay is long enough to background
+   * the app, which is where a reminder actually has to work.
+   */
+  const sendTestReminder = useCallback(async () => {
+    if (!permissionRef.current) {
+      permissionRef.current = await setupNotifications();
+      setRemindersOn(permissionRef.current);
+    }
+    if (!permissionRef.current) {
+      setTestNote('Notifications are off — enable them in Android settings.');
+      return;
+    }
+
+    const at = new Date(Date.now() + 60_000);
+    const ids = await scheduleSeries(
+      [at],
+      'Test reminder',
+      () => 'If you can see this, reminders work.',
+    );
+    setTestNote(
+      ids.length > 0
+        ? `Test scheduled for ${at.toLocaleTimeString(undefined, {
+            hour: 'numeric',
+            minute: '2-digit',
+          })} — close the app and wait.`
+        : "Couldn't schedule the test.",
+    );
+    setScheduled(await scheduledCount());
+  }, []);
+
   const refresh = useCallback(async () => {
     setRefreshing(true);
     await load(month);
@@ -319,6 +352,11 @@ export function MilkScreen({ onBack }: Props) {
                 (scheduled > 0 ? ` ${scheduled} scheduled.` : '')
               : `Reminders at ${describeSlots()} need notification permission.`}
           </Text>
+
+          <Pressable onPress={sendTestReminder} style={styles.testButton} hitSlop={8}>
+            <Text style={styles.testText}>Send a test reminder (1 min)</Text>
+          </Pressable>
+          {testNote ? <Text style={styles.testNote}>{testNote}</Text> : null}
 
           <Pressable
             style={({ pressed }) => [
@@ -495,6 +533,9 @@ const styles = StyleSheet.create({
   muted: { color: colors.muted, fontSize: 13 },
   hint: { marginTop: 10, color: colors.muted, fontSize: 12, textAlign: 'center' },
   reminderNote: { marginTop: 16, fontSize: 12, color: colors.muted, lineHeight: 17 },
+  testButton: { marginTop: 10, alignSelf: 'flex-start', paddingVertical: 4 },
+  testText: { color: colors.accent, fontWeight: '600', fontSize: 12 },
+  testNote: { marginTop: 4, fontSize: 12, color: colors.ok },
 
 
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
