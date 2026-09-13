@@ -42,3 +42,8 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Firebase service account keys — these can send push as you. google-services.json
+# is fine to commit (public identifiers only); a private key never is.
+*firebase-adminsdk*.json
+service-account*.json

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "176063156044",
+    "project_id": "sks-home-b0f55",
+    "storage_bucket": "sks-home-b0f55.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:176063156044:android:2614d3a8454be5085709e9",
+        "android_client_info": {
+          "package_name": "com.suprith.skshome"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDvWIFsRYJQb95UN3DEMg-ul06N50tKVSs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
